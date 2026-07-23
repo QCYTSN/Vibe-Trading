@@ -86,6 +86,10 @@ class LLMResponse:
         content_filter_triggered: ``True`` when the provider blocked the
             response via content moderation (e.g. DashScope/Qwen content
             moderation filter, ``finish_reason == "content_filter"``).
+        response_model: Model identifier reported by the provider response,
+            when available. This is authoritative runtime metadata and must
+            not be inferred from the model's natural-language self-report.
+        system_fingerprint: Optional provider-side deployment fingerprint.
     """
 
     content: Optional[str] = None
@@ -94,6 +98,8 @@ class LLMResponse:
     finish_reason: str = "stop"
     usage_metadata: Optional[Dict[str, int]] = None
     content_filter_triggered: bool = False
+    response_model: Optional[str] = None
+    system_fingerprint: Optional[str] = None
 
     @property
     def has_tool_calls(self) -> bool:
@@ -425,6 +431,13 @@ class ChatLLM:
             except (TypeError, ValueError):
                 usage = None
         additional_kwargs = getattr(ai_message, "additional_kwargs", {}) or {}
+        response_metadata = getattr(ai_message, "response_metadata", {}) or {}
+        response_model = response_metadata.get("model_name") or response_metadata.get("model")
+        if response_model is not None:
+            response_model = str(response_model).strip() or None
+        system_fingerprint = response_metadata.get("system_fingerprint")
+        if system_fingerprint is not None:
+            system_fingerprint = str(system_fingerprint).strip() or None
         thought_signatures_by_id, thought_signatures_by_index = (
             ChatLLM._tool_call_thought_signature_maps(ai_message)
         )
@@ -484,6 +497,8 @@ class ChatLLM:
             finish_reason=finish_reason,
             usage_metadata=usage,
             content_filter_triggered=content_filter_triggered,
+            response_model=response_model,
+            system_fingerprint=system_fingerprint,
         )
 
 

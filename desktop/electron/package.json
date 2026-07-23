@@ -1,0 +1,98 @@
+{
+  "name": "vibe-trading-desktop-community",
+  "version": "0.3.0",
+  "private": true,
+  "author": "Vibe-Trading Desktop Community Contributors",
+  "license": "MIT",
+  "description": "Community desktop host for Vibe-Trading",
+  "main": "dist/main.js",
+  "scripts": {
+    "configure:release": "node scripts/configure-release.mjs",
+    "build": "npm run configure:release && tsc && node scripts/copy-static.mjs",
+    "prepare:electron": "node scripts/prepare-electron.mjs",
+    "start": "npm run build && electron .",
+    "runtime:win": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-backend.ps1",
+    "smoke:backend": "node scripts/smoke-backend.mjs",
+    "smoke:interfaces": "node scripts/smoke-interfaces.mjs",
+    "verify:release": "node scripts/verify-release.mjs",
+    "pack:win": "npm run build && npm run prepare:electron && electron-builder --config .generated/electron-builder.json --publish never --win dir",
+    "installer:win": "npm run configure:release && electron-builder --config .generated/electron-builder.json --publish never --win nsis --prepackaged release/win-unpacked",
+    "dist:win": "npm run build && npm run prepare:electron && electron-builder --config .generated/electron-builder.json --publish never --win nsis"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "electron": "43.1.1",
+    "electron-builder": "26.15.3",
+    "typescript": "^5.9.3"
+  },
+  "build": {
+    "appId": "io.github.vibetrading.community.desktop",
+    "productName": "Vibe-Trading Desktop Community",
+    "compression": "normal",
+    "artifactName": "Vibe-Trading-Desktop-Community-${version}-${arch}.${ext}",
+    "asar": true,
+    "electronLanguages": [
+      "ar",
+      "en-GB",
+      "en-US",
+      "ja",
+      "ko",
+      "zh-CN"
+    ],
+    "electronDist": ".cache/electron-dist",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "runtime/backend",
+        "to": "backend"
+      },
+      {
+        "from": "../../LICENSE",
+        "to": "licenses/Vibe-Trading-LICENSE.txt"
+      },
+      {
+        "from": "../../NOTICE",
+        "to": "licenses/Vibe-Trading-NOTICE.txt"
+      },
+      {
+        "from": "PRIVACY.md",
+        "to": "docs/PRIVACY.md"
+      },
+      {
+        "from": "SECURITY.md",
+        "to": "docs/SECURITY.md"
+      },
+      {
+        "from": "RELEASE.md",
+        "to": "docs/RELEASE.md"
+      }
+    ],
+    "win": {
+      "icon": "../../assets/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "useZip": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}

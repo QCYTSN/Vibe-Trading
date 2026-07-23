@@ -635,6 +635,8 @@ class AgentLoop:
         content_filter_circuit_breaker = False
         empty_model_response_iter: int | None = None
         llm_usage_summary = _new_llm_usage_summary(self.llm)
+        last_response_model: str | None = None
+        last_system_fingerprint: str | None = None
         goal_continuations = 0
         goal_last_progress: tuple[int, int] | None = None
         wrap_up_at = max(1, int(self.max_iterations * 0.8))
@@ -782,6 +784,10 @@ class AgentLoop:
                     break
 
                 usage = getattr(response, "usage_metadata", None)
+                if getattr(response, "response_model", None):
+                    last_response_model = response.response_model
+                if getattr(response, "system_fingerprint", None):
+                    last_system_fingerprint = response.system_fingerprint
                 usage_delta = _record_llm_usage(
                     run_dir,
                     llm_usage_summary,
@@ -1053,6 +1059,19 @@ class AgentLoop:
             "iterations": iteration,
             "max_iterations": self.max_iterations,
         }
+        runtime_cfg = get_env_config().llm
+        configured_model = runtime_cfg.langchain_model_name.strip()
+        result.update(
+            {
+                "provider": runtime_cfg.langchain_provider.strip().lower() or "openai",
+                "configured_model": configured_model,
+                "model": last_response_model or configured_model,
+                "model_source": "provider_response" if last_response_model else "configured",
+                "reasoning_effort": runtime_cfg.langchain_reasoning_effort.strip().lower(),
+            }
+        )
+        if last_system_fingerprint:
+            result["system_fingerprint"] = last_system_fingerprint
         if final_reason is not None:
             result["reason"] = final_reason
 

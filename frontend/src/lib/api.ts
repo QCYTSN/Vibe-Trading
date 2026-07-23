@@ -186,6 +186,11 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(settings),
     }),
+  listLLMModels: (settings: ListLLMModelsRequest) =>
+    request<LLMModelsResponse>("/settings/llm/models", {
+      method: "POST",
+      body: JSON.stringify(settings),
+    }),
   getDataSourceSettings: () => request<DataSourceSettings>("/settings/data-sources"),
   updateDataSourceSettings: (settings: UpdateDataSourceSettingsRequest) =>
     request<DataSourceSettings>("/settings/data-sources", {
@@ -200,6 +205,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  getChannelCatalog: () => request<ChannelCatalogResponse>("/channels/catalog"),
+  updateChannelConfig: (body: ChannelConfigUpdateRequest) =>
+    request<{ status: string; channel: string; enabled: boolean }>("/channels/config", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  startWeixinLogin: (force = true) =>
+    request<WeixinLoginState>("/channels/weixin/login", {
+      method: "POST",
+      body: JSON.stringify({ force }),
+    }),
+  getWeixinLogin: () => request<WeixinLoginState>("/channels/weixin/login"),
 
   // Alpha Zoo API
   listAlphas: (params: AlphaListParams = {}) => {
@@ -326,6 +343,19 @@ export interface UpdateLLMSettingsRequest {
   reasoning_effort?: string;
 }
 
+export interface ListLLMModelsRequest {
+  provider: string;
+  base_url?: string;
+  api_key?: string;
+}
+
+export interface LLMModelsResponse {
+  provider: string;
+  models: string[];
+  source: "provider" | "default";
+  warning?: string | null;
+}
+
 export interface DataSourceSettings {
   tushare_token_configured: boolean;
   tushare_token_hint?: string | null;
@@ -372,6 +402,35 @@ export interface ChannelPairingCommandRequest {
 export interface ChannelPairingCommandResponse {
   channel: string;
   reply: string;
+}
+
+export interface ChannelCatalogItem {
+  name: string;
+  display_name: string;
+  configured: boolean;
+  enabled: boolean;
+  available: boolean;
+  error?: string;
+  install_hint?: string;
+  config: Record<string, unknown>;
+  schema: { properties?: Record<string, { type?: string; title?: string; description?: string; default?: unknown; format?: string }> };
+  setup_mode: "weixin_qr" | "form";
+}
+
+export interface ChannelCatalogResponse {
+  channels: ChannelCatalogItem[];
+}
+
+export interface ChannelConfigUpdateRequest {
+  channel: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+}
+
+export interface WeixinLoginState {
+  phase: "idle" | "starting" | "waiting" | "confirmed" | "error";
+  message: string;
+  qr_data_url: string;
 }
 
 // --- Types matching backend API contracts ---

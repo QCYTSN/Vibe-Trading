@@ -1,0 +1,117 @@
+name: Desktop Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      VIBE_RELEASE_REPOSITORY: ${{ github.repository }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/electron/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install desktop dependencies
+        working-directory: desktop/electron
+        run: npm ci
+
+      - name: Assemble embedded backend
+        working-directory: desktop/electron
+        shell: powershell
+        run: .\scripts\build-backend.ps1 -BuildPython "${{ env.pythonLocation }}\python.exe" -Clean
+
+      - name: Smoke test embedded backend
+        working-directory: desktop/electron
+        run: |
+          npm run smoke:backend
+          npm run smoke:interfaces
+
+      - name: Build unpacked desktop application
+        working-directory: desktop/electron
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: npm run pack:win
+
+      - name: Build NSIS installer
+        working-directory: desktop/electron
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: npm run installer:win
+
+      - name: Verify release assets and write checksum
+        working-directory: desktop/electron
+        shell: powershell
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+        run: |
+          npm run verify:release
+          $installer = Get-ChildItem -LiteralPath release -Filter 'Vibe-Trading-Desktop-Community-*-x64.exe' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) { throw 'Installer not found' }
+          $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($installer.Name)" | Set-Content -LiteralPath release\SHA256SUMS.txt -Encoding ascii
+          $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
+          "Installer signature status: $($signature.Status)"
+          $application = Get-ChildItem -LiteralPath release\win-unpacked -Filter '*.exe' | Where-Object { $_.Name -eq 'Vibe-Trading Desktop Community.exe' } | Select-Object -First 1
+          if (-not $application) { throw 'Packaged application executable not found' }
+          $appSignature = Get-AuthenticodeSignature -LiteralPath $application.FullName
+          "Application signature status: $($appSignature.Status)"
+          if ($env:CSC_LINK -and ($signature.Status -ne 'Valid' -or $appSignature.Status -ne 'Valid')) { throw "Expected valid installer and application signatures" }
+
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibe-trading-desktop-windows
+          path: |
+            desktop/electron/release/Vibe-Trading-Desktop-Community-*.exe
+            desktop/electron/release/Vibe-Trading-Desktop-Community-*.exe.blockmap
+            desktop/electron/release/latest.yml
+            desktop/electron/release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create draft GitHub Release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $notes = @"
+          Windows desktop community release candidate.
+
+          This release is created as a draft for clean-machine and upgrade testing. It is not an official HKUDS desktop client unless the upstream maintainers explicitly say so.
+          "@
+          $notes | Set-Content -LiteralPath desktop\electron\release\RELEASE_NOTES.md -Encoding utf8
+          gh release create $tag --draft --title "Vibe-Trading Desktop $tag" --notes-file desktop\electron\release\RELEASE_NOTES.md
+          Get-ChildItem -LiteralPath desktop\electron\release -File | Where-Object { $_.Name -match '(^Vibe-Trading-Desktop-Community-.*\.exe(\.blockmap)?$)|(^latest\.yml$)|(^SHA256SUMS\.txt$)' } | ForEach-Object {
+            gh release upload $tag $_.FullName --clobber
+          }

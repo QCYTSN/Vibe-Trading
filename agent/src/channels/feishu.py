@@ -644,14 +644,8 @@ class FeishuChannel(BaseChannel):
         self.config.app_secret = result["app_secret"]
         self.config.domain = result.get("domain", "feishu")
 
-        # Write credentials back to config
-        # VT-TODO: persist feishu credentials via VT config system
-        try:
-            from src.config.loader import load_agent_config
-            # Credentials stored in-memory on self.config; persist via VT config
-            # when channel config persistence is wired up.
-        except Exception:
-            pass
+        # Credentials remain in memory on self.config. Persist them through the
+        # Vibe-Trading config system once channel persistence is wired up.
 
         _LOGIN_CONSOLE.print("\n[green]Feishu/Lark login complete.[/green]")
         _LOGIN_CONSOLE.print(f"App ID: {escape(result['app_id'])}")

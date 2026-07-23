@@ -5,12 +5,13 @@ import { Send, Loader2, ArrowDown, Square, Download, Plus, Paperclip, X, Users, 
 import { toast } from "sonner";
 import { useAgentStore } from "@/stores/agent";
 import { useSSE } from "@/hooks/useSSE";
-import { ApiError, AUTH_REQUIRED_MESSAGE, api, isAuthRequiredError, type GoalSnapshot, type MandateProposal, type MandateCommitted, type LiveAction, type LiveHalted, type LiveStatus } from "@/lib/api";
+import { ApiError, AUTH_REQUIRED_MESSAGE, api, isAuthRequiredError, type GoalSnapshot, type MandateProposal, type MandateCommitted, type LiveAction, type LiveHalted, type LiveStatus, type LLMSettings } from "@/lib/api";
 import { isReportWorthyRun } from "@/lib/runReports";
 import type { AgentMessage, ToolCallEntry } from "@/types/agent";
 import { AgentAvatar } from "@/components/chat/AgentAvatar";
 import { WelcomeScreen } from "@/components/chat/WelcomeScreen";
 import { MessageBubble } from "@/components/chat/MessageBubble";
+import { ModelRuntimeBar } from "@/components/chat/ModelRuntimeBar";
 import { ThinkingTimeline } from "@/components/chat/ThinkingTimeline";
 import { ConversationTimeline } from "@/components/chat/ConversationTimeline";
 import { ToolProgressIndicator } from "@/components/chat/ToolProgressIndicator";
@@ -256,6 +257,8 @@ export function Agent() {
    * items (audit M2: always-available global halt — SPEC Consent §4). */
   const [liveStatus, setLiveStatus] = useState<LiveStatus | null>(null);
   const [reasoningActive, setReasoningActive] = useState(false);
+  const [llmSettings, setLlmSettings] = useState<LLMSettings | null>(null);
+  const [runtimeIdentity, setRuntimeIdentity] = useState<{ provider?: string; model?: string }>({});
   /* The status endpoint is not wired on every backend; a 404/501 hides the panel
    * and removes status from the kill-switch visibility condition. */
   const [liveStatusUnavailable, setLiveStatusUnavailable] = useState(false);
@@ -351,17 +354,25 @@ export function Agent() {
       const msgs = await api.getSessionMessages(sid);
       if (genRef.current !== gen) return;
       const agentMsgs: AgentMessage[] = [];
+      let latestRuntimeIdentity: { provider?: string; model?: string } | null = null;
       for (const m of msgs) {
         const meta = m.metadata as Record<string, unknown> | undefined;
         const runId = meta?.run_id as string | undefined;
         const metrics = meta?.metrics as Record<string, number> | undefined;
+        const elapsedMs = typeof meta?.elapsed_ms === "number" ? meta.elapsed_ms : undefined;
+        if (m.role === "assistant" && (typeof meta?.provider === "string" || typeof meta?.model === "string")) {
+          latestRuntimeIdentity = {
+            provider: typeof meta?.provider === "string" ? meta.provider : undefined,
+            model: typeof meta?.model === "string" ? meta.model : undefined,
+          };
+        }
         const ts = new Date(m.created_at).getTime();
         if (m.role === "user") {
           agentMsgs.push({ id: m.message_id, type: "user", content: m.content, timestamp: ts });
         } else if (runId) {
           // Show text answer first (if non-empty), then chart card
           if (m.content && m.content !== "Strategy execution completed.") {
-            agentMsgs.push({ id: m.message_id + "_ans", type: "answer", content: m.content, timestamp: ts });
+            agentMsgs.push({ id: m.message_id + "_ans", type: "answer", content: m.content, elapsed_ms: elapsedMs, timestamp: ts });
           }
           if (metrics && Object.keys(metrics).length > 0) {
             agentMsgs.push({ id: m.message_id, type: "run_complete", content: "", runId, metrics, timestamp: ts + 1 });
@@ -395,13 +406,14 @@ export function Agent() {
             }
           }
         } else {
-          agentMsgs.push({ id: m.message_id, type: "answer", content: m.content, timestamp: ts });
+          agentMsgs.push({ id: m.message_id, type: "answer", content: m.content, elapsed_ms: elapsedMs, timestamp: ts });
         }
       }
       if (genRef.current !== gen) return;
       act().loadHistory(agentMsgs);
       act().setSessionLoading(false);
       act().cacheSession(sid, agentMsgs);
+      if (latestRuntimeIdentity) setRuntimeIdentity(latestRuntimeIdentity);
       setTimeout(() => forceScrollToBottom(), 50);
     } catch {
       act().setSessionLoading(false);
@@ -575,7 +587,13 @@ export function Agent() {
         const runDir = String(d.run_dir || "");
         const runId = runDir ? runDir.split(/[/\\]/).pop() : undefined;
         const summary = String(d.summary || "");
-        if (summary) s.addMessage({ id: "", type: "answer", content: summary, timestamp: Date.now() });
+        if (summary) s.addMessage({ id: "", type: "answer", content: summary, elapsed_ms: Number(d.elapsed_ms || 0) || undefined, timestamp: Date.now() });
+        if (d.provider || d.model) {
+          setRuntimeIdentity({
+            provider: d.provider ? String(d.provider) : undefined,
+            model: d.model ? String(d.model) : undefined,
+          });
+        }
 
         // Detect Shadow Account id if render_shadow_report fired successfully this turn
         const shadowCall = completedTools.find(
@@ -833,6 +851,7 @@ export function Agent() {
   useEffect(() => {
     api.getLLMSettings().then((s) => {
       sseTimeoutMsRef.current = s.sse_timeout_seconds * 1000;
+      setLlmSettings(s);
     }).catch(() => {});
   }, []);
 
@@ -1161,6 +1180,11 @@ export function Agent() {
 
   return (
     <div className="flex flex-col flex-1 min-w-0 overflow-hidden h-full">
+      <ModelRuntimeBar
+        settings={llmSettings}
+        runtimeProvider={runtimeIdentity.provider}
+        runtimeModel={runtimeIdentity.model}
+      />
       <div ref={listRef} className="flex-1 overflow-auto p-6 scroll-smooth relative">
         <div className="max-w-3xl mx-auto space-y-4">
           {sessionLoading && (

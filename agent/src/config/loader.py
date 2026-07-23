@@ -43,6 +43,7 @@ def load_agent_config(config_path: Path | None = None) -> AgentConfig:
 
     try:
         raw = _read_config_file(path)
+        raw = _apply_desktop_channel_secrets(raw)
         return AgentConfig.model_validate(raw)
     except (OSError, ValueError, ValidationError) as exc:
         logger.warning(
@@ -52,6 +53,32 @@ def load_agent_config(config_path: Path | None = None) -> AgentConfig:
         )
         logger.debug("Agent config load error details: %s", exc)
         return AgentConfig()
+
+
+def _apply_desktop_channel_secrets(raw: dict[str, Any]) -> dict[str, Any]:
+    """Merge DPAPI-decrypted channel secrets injected by the desktop host."""
+    encoded = os.environ.get("VIBE_TRADING_DESKTOP_CHANNEL_SECRETS_JSON", "").strip()
+    if not encoded:
+        return raw
+    try:
+        secrets = json.loads(encoded)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Ignoring invalid desktop channel secret payload")
+        return raw
+    if not isinstance(secrets, dict):
+        return raw
+    merged = dict(raw)
+    channels = dict(merged.get("channels") or {})
+    for channel, fields in secrets.items():
+        if not isinstance(channel, str) or not isinstance(fields, dict):
+            continue
+        section = dict(channels.get(channel) or {})
+        for field, value in fields.items():
+            if isinstance(field, str) and isinstance(value, str):
+                section[field] = value
+        channels[channel] = section
+    merged["channels"] = channels
+    return merged
 
 
 def merge_agent_config_overrides(

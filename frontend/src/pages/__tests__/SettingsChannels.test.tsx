@@ -8,6 +8,7 @@ const apiMock = vi.hoisted(() => ({
   startChannels: vi.fn(),
   stopChannels: vi.fn(),
   updateLLMSettings: vi.fn(),
+  listLLMModels: vi.fn(),
   updateDataSourceSettings: vi.fn(),
 }));
 
@@ -105,6 +106,12 @@ describe("Settings IM channels panel", () => {
     apiMock.getChannelStatus.mockResolvedValue(channelStatus());
     apiMock.startChannels.mockResolvedValue(channelStatus({ running: true }));
     apiMock.stopChannels.mockResolvedValue(channelStatus());
+    apiMock.listLLMModels.mockResolvedValue({
+      provider: "openrouter",
+      models: ["deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-flash", "openai/gpt-5.5"],
+      source: "provider",
+    });
+    delete window.vibeDesktop;
   });
 
   it("renders channel runtime status and refreshes it", async () => {
@@ -141,5 +148,35 @@ describe("Settings IM channels panel", () => {
     expect(screen.getByText("IM Channels")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start channels" })).toBeDisabled();
+  });
+
+  it("loads every provider model into the custom picker while keeping the field editable", async () => {
+    render(<Settings />);
+    await screen.findByText("LLM Settings");
+
+    fireEvent.click(screen.getByRole("button", { name: "Load models" }));
+
+    await waitFor(() => expect(apiMock.listLLMModels).toHaveBeenCalledWith({
+      provider: "openrouter",
+      base_url: "https://openrouter.ai/api/v1",
+      api_key: undefined,
+    }));
+    const modelInput = screen.getByRole("combobox", { name: "Model" });
+    expect(modelInput).not.toHaveAttribute("readonly");
+
+    fireEvent.change(modelInput, { target: { value: "deepseek/deepseek-v4-pro" } });
+    fireEvent.click(screen.getByRole("button", { name: "Model options" }));
+
+    expect(screen.getByRole("option", { name: "deepseek/deepseek-v4-pro" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "deepseek/deepseek-v4-flash" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "openai/gpt-5.5" })).toBeInTheDocument();
+  });
+
+  it("replaces the local API key form with managed protection in desktop mode", async () => {
+    window.vibeDesktop = { isDesktop: true };
+    render(<Settings />);
+
+    expect(await screen.findByText("Local service protection")).toBeInTheDocument();
+    expect(screen.queryByText("Server API key")).not.toBeInTheDocument();
   });
 });

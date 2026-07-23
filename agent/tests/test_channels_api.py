@@ -99,3 +99,18 @@ def test_channels_pairing_command_uses_shared_store(tmp_path: Path, monkeypatch)
     assert response.status_code == 200
     assert response.json()["channel"] == "telegram"
     assert "No pending pairing requests" in response.json()["reply"]
+
+
+def test_channels_catalog_includes_every_adapter_and_weixin_qr_setup(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+
+    response = client.get("/channels/catalog")
+
+    assert response.status_code == 200
+    channels = {item["name"]: item for item in response.json()["channels"]}
+    assert {"weixin", "telegram", "discord", "slack", "feishu", "wecom"} <= channels.keys()
+    assert channels["weixin"]["setup_mode"] == "weixin_qr"
+    assert "properties" in channels["weixin"]["schema"]
+    assert channels["telegram"]["setup_mode"] == "form"

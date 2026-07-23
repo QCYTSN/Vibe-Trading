@@ -232,6 +232,9 @@ class APIConfig(_EnvBase):
 
     api_auth_key: str = Field(alias="API_AUTH_KEY", default="")
     vibe_trading_api_key: str = Field(alias="VIBE_TRADING_API_KEY", default="")
+    vibe_trading_desktop_fast_start: EnvBool = Field(
+        alias="VIBE_TRADING_DESKTOP_FAST_START", default=False,
+    )
     cors_origins: str = Field(alias="CORS_ORIGINS", default="")
     api_allowed_hosts: str = Field(alias="API_ALLOWED_HOSTS", default="")
     # Comma-separated Host/Origin allow-list for the network MCP transports

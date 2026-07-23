@@ -13,6 +13,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import os
 import random
 import re
@@ -25,15 +26,15 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
-import logging; logger = logging.getLogger(__name__)
-from pydantic import Field
+from pydantic import BaseModel, Field
 
+from src.channels.base import BaseChannel
 from src.channels.bus.events import OutboundMessage
 from src.channels.bus.queue import MessageBus
-from src.channels.base import BaseChannel
 from src.channels.utils import get_media_dir, get_runtime_subdir
-from pydantic import BaseModel
 from src.channels.utils import split_message
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Protocol constants (from openclaw-weixin types.ts)
@@ -187,10 +188,11 @@ class WeixinChannel(BaseChannel):
         """Load saved account state. Returns True if a valid token was found."""
         state_file = self._get_state_dir() / "account.json"
         if not state_file.exists():
-            return False
+            self._token = os.environ.get("VIBE_TRADING_WEIXIN_TOKEN", "").strip()
+            return bool(self._token)
         try:
             data = json.loads(state_file.read_text())
-            self._token = data.get("token", "")
+            self._token = os.environ.get("VIBE_TRADING_WEIXIN_TOKEN", "").strip() or data.get("token", "")
             self._get_updates_buf = data.get("get_updates_buf", "")
             context_tokens = data.get("context_tokens", {})
             if isinstance(context_tokens, dict):
@@ -222,12 +224,16 @@ class WeixinChannel(BaseChannel):
         state_file = self._get_state_dir() / "account.json"
         with suppress(Exception):
             data = {
-                "token": self._token,
                 "get_updates_buf": self._get_updates_buf,
                 "context_tokens": self._context_tokens,
                 "typing_tickets": self._typing_tickets,
                 "base_url": self.config.base_url,
             }
+            # A fresh QR login must persist the token briefly so the Electron
+            # main process can import it into DPAPI storage. Once a secure
+            # token is already injected, never duplicate it in account.json.
+            if not os.environ.get("VIBE_TRADING_WEIXIN_TOKEN", "").strip():
+                data["token"] = self._token
             state_file.write_text(json.dumps(data, ensure_ascii=False))
 
     # ------------------------------------------------------------------

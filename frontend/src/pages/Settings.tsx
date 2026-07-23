@@ -1,8 +1,11 @@
 import i18n from "@/i18n";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Database, KeyRound, Loader2, MessageSquareMore, Play, RefreshCw, RotateCcw, Save, Server, SlidersHorizontal, Square } from "lucide-react";
+import { Database, KeyRound, Loader2, MessageSquareMore, Play, RefreshCw, RotateCcw, Save, Server, ShieldCheck, SlidersHorizontal, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { ModelPicker } from "@/components/settings/ModelPicker";
+import { DesktopUpdateSettings } from "@/components/settings/DesktopUpdateSettings";
+import { ChannelCenter } from "@/components/settings/ChannelCenter";
 import { QVerisSettings } from "@/components/settings/QVerisSettings"; // QVERIS-INTEGRATION
 import { api, isAuthRequiredError, type ChannelRuntimeStatus, type DataSourceSettings, type LLMProviderOption, type LLMSettings } from "@/lib/api";
 import { getApiAuthKey, setApiAuthKey } from "@/lib/apiAuth";
@@ -36,11 +39,15 @@ function toForm(settings: LLMSettings): LLMFormState {
 
 export function Settings() {
   const { t } = useTranslation();
+  const isDesktop = window.vibeDesktop?.isDesktop === true;
   const [settings, setSettings] = useState<LLMSettings | null>(null);
   const [dataSettings, setDataSettings] = useState<DataSourceSettings | null>(null);
   const [channelStatus, setChannelStatus] = useState<ChannelRuntimeStatus | null>(null);
   const [form, setForm] = useState<LLMFormState | null>(null);
   const [apiKey, setApiKey] = useState("");
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelListHint, setModelListHint] = useState<string | null>(null);
   const [localApiKey, setLocalApiKeyState] = useState(() => getApiAuthKey());
   const [clearApiKey, setClearApiKey] = useState(false);
   const [tushareToken, setTushareToken] = useState("");
@@ -66,6 +73,10 @@ export function Settings() {
         if (llmResult.status === "fulfilled") {
           setSettings(llmResult.value);
           setForm(toForm(llmResult.value));
+          setModelOptions(Array.from(new Set([
+            llmResult.value.model_name,
+            llmResult.value.providers.find((provider) => provider.name === llmResult.value.provider)?.default_model ?? "",
+          ].filter(Boolean))));
         } else {
           const message = llmResult.reason instanceof Error ? llmResult.reason.message : "Unknown error";
           setSettingsLoadError(message);
@@ -142,6 +153,8 @@ export function Settings() {
       model_name: provider.default_model,
       base_url: provider.default_base_url,
     });
+    setModelOptions([provider.default_model]);
+    setModelListHint(null);
   };
 
   const onProviderChange = (name: string) => {
@@ -155,6 +168,35 @@ export function Settings() {
     });
     setApiKey("");
     setClearApiKey(false);
+    setModelOptions([provider.default_model]);
+    setModelListHint(null);
+  };
+
+  const refreshModels = async () => {
+    if (!form || !selectedProvider) return;
+    setModelsLoading(true);
+    setModelListHint(null);
+    try {
+      const result = await api.listLLMModels({
+        provider: form.provider,
+        base_url: form.base_url,
+        api_key: apiKey.trim() || undefined,
+      });
+      setModelOptions(Array.from(new Set([
+        form.model_name,
+        selectedProvider.default_model,
+        ...result.models,
+      ].filter(Boolean))));
+      setModelListHint(
+        result.warning
+          ? result.warning
+          : t("settings.modelsLoaded", { count: result.models.length }),
+      );
+    } catch (error) {
+      setModelListHint(error instanceof Error ? error.message : t("settings.modelsLoadFailed"));
+    } finally {
+      setModelsLoading(false);
+    }
   };
 
   const submitLocalApiKey = (event: FormEvent) => {
@@ -169,16 +211,25 @@ export function Settings() {
     if (!form) return;
     setSaving(true);
     try {
+      const desktop = window.vibeDesktop;
+      if (desktop && selectedProvider?.api_key_env) {
+        if (clearApiKey) await desktop.setCredential(selectedProvider.api_key_env, null);
+        else if (apiKey.trim()) await desktop.setCredential(selectedProvider.api_key_env, apiKey.trim());
+      }
       const updated = await api.updateLLMSettings({
         ...form,
-        api_key: apiKey.trim() || undefined,
-        clear_api_key: clearApiKey,
+        api_key: isDesktop ? undefined : apiKey.trim() || undefined,
+        clear_api_key: isDesktop ? false : clearApiKey,
       });
       setSettings(updated);
       setForm(toForm(updated));
       setApiKey("");
       setClearApiKey(false);
       toast.success("LLM settings saved");
+      if (desktop && selectedProvider?.api_key_env && (apiKey.trim() || clearApiKey)) {
+        toast.info("安全凭证已更新，正在重启本地服务…");
+        await desktop.restartBackend();
+      }
     } catch (error) {
       toast.error(`Failed to save LLM settings: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
@@ -190,14 +241,23 @@ export function Settings() {
     event.preventDefault();
     setDataSaving(true);
     try {
+      const desktop = window.vibeDesktop;
+      if (desktop) {
+        if (clearTushareToken) await desktop.setCredential("TUSHARE_TOKEN", null);
+        else if (tushareToken.trim()) await desktop.setCredential("TUSHARE_TOKEN", tushareToken.trim());
+      }
       const updated = await api.updateDataSourceSettings({
-        tushare_token: tushareToken.trim() || undefined,
-        clear_tushare_token: clearTushareToken,
+        tushare_token: isDesktop ? undefined : tushareToken.trim() || undefined,
+        clear_tushare_token: isDesktop ? false : clearTushareToken,
       });
       setDataSettings(updated);
       setTushareToken("");
       setClearTushareToken(false);
       toast.success("Data source settings saved");
+      if (desktop && (tushareToken.trim() || clearTushareToken)) {
+        toast.info("安全凭证已更新，正在重启本地服务…");
+        await desktop.restartBackend();
+      }
     } catch (error) {
       toast.error(`Failed to save data source settings: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
@@ -238,6 +298,25 @@ export function Settings() {
     </form>
   );
 
+  const desktopApiAccessSection = (
+    <section className="rounded-lg border border-success/20 bg-success/5 p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="rounded-md bg-success/10 p-2 text-success">
+            <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-base font-semibold">{t("settings.desktopProtection")}</h2>
+            <p className="max-w-3xl text-sm text-muted-foreground">{t("settings.desktopProtectionDesc")}</p>
+          </div>
+        </div>
+        <span className="shrink-0 rounded-full bg-success/10 px-2.5 py-1 text-xs font-medium text-success">
+          {t("settings.protected")}
+        </span>
+      </div>
+    </section>
+  );
+
   if (loading || !form || !settings || !dataSettings) {
     return (
       <div className="mx-auto max-w-5xl space-y-6 p-6">
@@ -245,9 +324,7 @@ export function Settings() {
           <h1 className="text-2xl font-semibold tracking-tight">{"Settings"}</h1>
           <p className="max-w-3xl text-sm text-muted-foreground">{"Configure model credentials and market data source tokens for this local project."}</p>
         </div>
-        {localApiAccessSection}
-        {/* QVERIS-INTEGRATION */}
-        <QVerisSettings />
+        {isDesktop ? desktopApiAccessSection : localApiAccessSection}
         <div className="flex min-h-32 items-center justify-center rounded-lg border bg-card p-5 text-sm text-muted-foreground">
           {settingsLoadError ? (
             <div className="text-center">
@@ -391,7 +468,6 @@ export function Settings() {
       )}
     </section>
   );
-
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-6">
       <div className="space-y-2">
@@ -399,12 +475,14 @@ export function Settings() {
         <p className="max-w-3xl text-sm text-muted-foreground">{"Configure model credentials and market data source tokens for this local project."}</p>
       </div>
 
-      {localApiAccessSection}
+      {isDesktop ? desktopApiAccessSection : localApiAccessSection}
+
+      {isDesktop ? <DesktopUpdateSettings /> : null}
 
       {/* QVERIS-INTEGRATION */}
       <QVerisSettings />
 
-      {channelsSection}
+      {isDesktop ? <ChannelCenter /> : channelsSection}
 
       <div className="space-y-2">
         <h2 className="text-lg font-semibold tracking-tight">{"LLM Settings"}</h2>
@@ -436,12 +514,22 @@ export function Settings() {
             <label className="grid gap-2">
               <span className={labelClass}>{"Model"}</span>
               <div className="flex gap-2">
-                <input
+                <ModelPicker
                   value={form.model_name}
-                  onChange={(event) => setForm({ ...form, model_name: event.target.value })}
-                  className={fieldClass}
-                  required
+                  options={modelOptions}
+                  onChange={(modelName) => setForm({ ...form, model_name: modelName })}
+                  ariaLabel="Model"
                 />
+                <button
+                  type="button"
+                  onClick={() => void refreshModels()}
+                  disabled={modelsLoading}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                  title={t("settings.loadModels")}
+                >
+                  {modelsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  <span className="hidden sm:inline">{t("settings.loadModels")}</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => applyProviderDefaults()}
@@ -452,7 +540,9 @@ export function Settings() {
                   <span className="hidden sm:inline">{"Use provider defaults"}</span>
                 </button>
               </div>
-              <span className={hintClass}>{"Use the exact model id required by your provider."}</span>
+              <span className={hintClass}>
+                {modelListHint || t("settings.modelPickerHint")}
+              </span>
             </label>
 
             <label className="grid gap-2">
@@ -514,7 +604,7 @@ export function Settings() {
         <section className="rounded-lg border bg-card p-5 shadow-sm">
           <div className="mb-5 flex items-center gap-2">
             <SlidersHorizontal className="h-4 w-4 text-primary" />
-            <h2 className="text-base font-semibold">{"Generation"}</h2>
+            <h2 className="text-base font-semibold">{i18n.t("settings.generation")}</h2>
           </div>
 
           <div className="grid gap-4">
@@ -529,6 +619,7 @@ export function Settings() {
                 onChange={(event) => setForm({ ...form, temperature: Number(event.target.value) })}
                 className={fieldClass}
               />
+              <span className={hintClass}>{i18n.t("settings.temperatureDesc")}</span>
             </label>
 
             <label className="grid gap-2">
@@ -545,7 +636,7 @@ export function Settings() {
             </label>
 
             <label className="grid gap-2">
-              <span className={labelClass}>{"Max retries"}</span>
+              <span className={labelClass}>{i18n.t("settings.maxRetries")}</span>
               <input
                 type="number"
                 min={0}
@@ -564,13 +655,13 @@ export function Settings() {
                 onChange={(event) => setForm({ ...form, reasoning_effort: event.target.value })}
                 className={fieldClass}
               >
-                <option value="">{"Off"}</option>
-                <option value="low">low</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-                <option value="max">max</option>
+                <option value="">{i18n.t("settings.providerDefault")}</option>
+                <option value="low">{i18n.t("settings.reasoningEffortLow")}</option>
+                <option value="medium">{i18n.t("settings.reasoningEffortMedium")}</option>
+                <option value="high">{i18n.t("settings.reasoningEffortHigh")}</option>
+                <option value="max">{i18n.t("settings.reasoningEffortMax")}</option>
               </select>
-              <span className={hintClass}>{"How hard the model thinks before answering. Higher is more thorough but slower; leave Off for fastest replies."}</span>
+              <span className={hintClass}>{i18n.t("settings.reasoningEffortDesc")}</span>
             </label>
 
             <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">

@@ -87,6 +87,13 @@ AGENTS.md
 
 .DS_Store
 
+# Desktop application build outputs
+desktop/electron/node_modules/
+desktop/electron/dist/
+desktop/electron/release/
+desktop/electron/.cache/
+desktop/electron/runtime/
+
 # Alpha Zoo wiki artifacts (generated, not source)
 wiki/alpha-library/manifest.json
 wiki/alpha-library/content/

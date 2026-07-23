@@ -8,6 +8,8 @@ import { api, type SessionItem } from "@/lib/api";
 import { useAgentStore } from "@/stores/agent";
 import { ConnectionBanner } from "@/components/layout/ConnectionBanner";
 import { SUPPORTED_LANGUAGES } from "@/i18n";
+import { preloadRoute, scheduleCommonRoutePreloads } from "@/routeModules";
+import { FirstRunGate } from "@/components/desktop/FirstRunGate";
 
 // APP_VERSION is sourced from i18n locale files (app.version key) to keep a
 // single source of truth across the footer and every localised README.
@@ -39,6 +41,8 @@ export function Layout() {
   useEffect(() => {
     localStorage.setItem("qa-sidebar", collapsed ? "collapsed" : "expanded");
   }, [collapsed]);
+
+  useEffect(() => scheduleCommonRoutePreloads(), []);
 
   const loadSessions = () => {
     api.listSessions()
@@ -75,6 +79,7 @@ export function Layout() {
 
   return (
     <div className="flex h-screen bg-background rtl:flex-row-reverse">
+      <FirstRunGate />
       {/* Sidebar */}
       <aside className={cn(
         "border-e bg-card flex flex-col shrink-0 transition-all duration-200 overflow-visible",
@@ -96,6 +101,8 @@ export function Layout() {
               <Link
                 key={to}
                 to={to}
+                onMouseEnter={() => preloadRoute(to)}
+                onFocus={() => preloadRoute(to)}
                 className={cn(
                   "flex items-center rounded-md text-sm transition-colors",
                   collapsed ? "justify-center p-2" : "gap-3 px-3 py-2",
@@ -122,6 +129,8 @@ export function Layout() {
               </span>
               <Link
                 to="/agent"
+                onMouseEnter={() => preloadRoute("/agent")}
+                onFocus={() => preloadRoute("/agent")}
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 title={t('layout.newChat')}
               >

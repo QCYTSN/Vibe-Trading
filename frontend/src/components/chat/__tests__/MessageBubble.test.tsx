@@ -45,6 +45,24 @@ describe("MessageBubble", () => {
       render(<MessageBubble msg={makeMsg({ type: "answer", content: "Here is the **analysis**" })} />);
       expect(screen.getByTestId("markdown")).toHaveTextContent("Here is the **analysis**");
     });
+
+    it("shows the total response time without exposing token counts", () => {
+      render(<MessageBubble msg={makeMsg({ type: "answer", elapsed_ms: 2340 })} />);
+      expect(screen.getByText("2.3 s")).toBeInTheDocument();
+      expect(screen.queryByText(/token/i)).not.toBeInTheDocument();
+    });
+
+    it("uses the desktop clipboard bridge when available", async () => {
+      const copyText = vi.fn().mockResolvedValue(true);
+      window.vibeDesktop = { isDesktop: true, copyText };
+      render(<MessageBubble msg={makeMsg({ type: "answer", content: "copy me" })} />);
+
+      await userEvent.setup().click(screen.getByRole("button", { name: "Copy" }));
+
+      expect(copyText).toHaveBeenCalledWith("copy me");
+      expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+      delete window.vibeDesktop;
+    });
   });
 
   describe("error messages", () => {

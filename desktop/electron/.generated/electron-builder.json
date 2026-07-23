@@ -1,0 +1,67 @@
+{
+  "appId": "io.github.vibetrading.community.desktop",
+  "productName": "Vibe-Trading Desktop Community",
+  "compression": "normal",
+  "artifactName": "Vibe-Trading-Desktop-Community-${version}-${arch}.${ext}",
+  "asar": true,
+  "electronLanguages": [
+    "ar",
+    "en-GB",
+    "en-US",
+    "ja",
+    "ko",
+    "zh-CN"
+  ],
+  "electronDist": ".cache/electron-dist",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "runtime/backend",
+      "to": "backend"
+    },
+    {
+      "from": "../../LICENSE",
+      "to": "licenses/Vibe-Trading-LICENSE.txt"
+    },
+    {
+      "from": "../../NOTICE",
+      "to": "licenses/Vibe-Trading-NOTICE.txt"
+    },
+    {
+      "from": "PRIVACY.md",
+      "to": "docs/PRIVACY.md"
+    },
+    {
+      "from": "SECURITY.md",
+      "to": "docs/SECURITY.md"
+    },
+    {
+      "from": "RELEASE.md",
+      "to": "docs/RELEASE.md"
+    }
+  ],
+  "win": {
+    "icon": "../../assets/icon.png",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "useZip": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+  }
+}

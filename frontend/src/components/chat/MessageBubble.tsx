@@ -1,12 +1,13 @@
 import i18n from '@/i18n';
 import { memo, useState, useCallback } from "react";
-import { User, XCircle, RefreshCw, Copy, Check } from "lucide-react";
+import { User, XCircle, RefreshCw, Copy, Check, Clock3 } from "lucide-react";
 import ReactMarkdown, { type Options as ReactMarkdownOptions } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
+import { toast } from "sonner";
 import { formatTimestamp } from "@/lib/formatters";
 import { normalizeMathDelimiters } from "@/lib/markdown";
 import type { AgentMessage } from "@/types/agent";
@@ -21,13 +22,51 @@ const remarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
 ];
 const rehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [rehypeHighlight, rehypeKatex];
 
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (window.vibeDesktop?.copyText && await window.vibeDesktop.copyText(text)) {
+      return true;
+    }
+  } catch {
+    // Fall through to browser copy methods for development and older shells.
+  }
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the selection-based compatibility path.
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  } finally {
+    textarea.remove();
+  }
+  return copied;
+}
+
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(text).then(() => {
+  const handleCopy = useCallback(async () => {
+    if (await copyText(text)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    });
+      return;
+    }
+    toast.error(i18n.t("messageBubble.copyFailed"));
   }, [text]);
   return (
     <button
@@ -56,6 +95,14 @@ interface Props {
   onRetry?: (msg: AgentMessage) => void;
 }
 
+function formatElapsed(elapsedMs: number): string {
+  if (elapsedMs < 1000) return `${Math.max(1, Math.round(elapsedMs))} ms`;
+  const seconds = elapsedMs / 1000;
+  if (seconds < 60) return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${Math.round(seconds % 60)}s`;
+}
+
 export const MessageBubble = memo(function MessageBubble({ msg, onRetry }: Props) {
   const ts = msg.timestamp ? formatTimestamp(msg.timestamp) : null;
 
@@ -82,7 +129,17 @@ export const MessageBubble = memo(function MessageBubble({ msg, onRetry }: Props
           <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed prose-table:border prose-table:border-border/50 prose-th:bg-muted/30 prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 prose-th:text-left prose-th:text-xs prose-th:font-medium prose-td:text-xs prose-hr:hidden">
             <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins}>{normalizeMathDelimiters(msg.content)}</ReactMarkdown>
           </div>
-          {ts && <span className="text-[9px] text-muted-foreground/30 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">{ts}</span>}
+          {(msg.elapsed_ms != null || ts) && (
+            <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground/55">
+              {msg.elapsed_ms != null && (
+                <span className="inline-flex items-center gap-1 tabular-nums" title={i18n.t("messageBubble.elapsedTime")}>
+                  <Clock3 className="h-3 w-3" aria-hidden="true" />
+                  {formatElapsed(msg.elapsed_ms)}
+                </span>
+              )}
+              {ts && <span className="opacity-0 transition-opacity group-hover:opacity-70">{ts}</span>}
+            </div>
+          )}
         </div>
       </div>
     );

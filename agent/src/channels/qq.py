@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 import mimetypes
 import os
 import re
@@ -31,15 +32,15 @@ from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import unquote, urlparse
 
 import aiohttp
-import logging; logger = logging.getLogger(__name__)
-from pydantic import Field
+from pydantic import BaseModel, Field
 
+from src.channels.base import BaseChannel
 from src.channels.bus.events import OutboundMessage
 from src.channels.bus.queue import MessageBus
-from src.channels.base import BaseChannel
-from pydantic import BaseModel
 from src.channels.utils import validate_url_target
+
 # logging_bridge not needed (using stdlib logging)
+logger = logging.getLogger(__name__)
 
 try:
     from src.channels.utils import get_media_dir

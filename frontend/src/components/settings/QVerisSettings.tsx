@@ -157,7 +157,11 @@ export function QVerisSettings() {
         budget_credits_per_session: Number(form.budget_credits_per_session) || 0,
       };
       const trimmedApiKey = form.api_key.trim();
-      if (trimmedApiKey) payload.api_key = trimmedApiKey;
+      if (trimmedApiKey && window.vibeDesktop) {
+        await window.vibeDesktop.setCredential("QVERIS_API_KEY", trimmedApiKey);
+      } else if (trimmedApiKey) {
+        payload.api_key = trimmedApiKey;
+      }
 
       const nextConfig = await requestJson<QVerisConfig>("/qveris/config", {
         method: "PUT",
@@ -166,6 +170,11 @@ export function QVerisSettings() {
       setConfig(nextConfig);
       setForm(formFromConfig(nextConfig));
       toast.success(t("qveris.saved"));
+      if (trimmedApiKey && window.vibeDesktop) {
+        toast.info("安全凭证已更新，正在重启本地服务…");
+        await window.vibeDesktop.restartBackend();
+        return;
+      }
       await load();
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : t("qveris.testFailed");
