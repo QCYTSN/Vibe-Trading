@@ -3,9 +3,11 @@
 ## Scope
 
 This document covers the Electron main process, its sandboxed renderer, and the
-single Vibe-Trading Python process started by the shell. Packaging, credential
-storage, auto-update, optional messaging adapters, broker configuration, and
-code signing are outside this change.
+single Vibe-Trading Python process started by the shell. The Windows packaging
+layer additionally covers local credential encryption, migration, and
+injection into that owned Python process. Auto-update, optional messaging
+adapters, personal WeChat pairing, broker configuration, and release ownership
+remain outside this change.
 
 ## Assets
 
@@ -13,6 +15,7 @@ code signing are outside this change.
 - Local Vibe-Trading sessions, reports, configuration, and research data.
 - Any credentials already present in the environment inherited by the Python
   process.
+- LLM, Tushare, and QVeris credentials managed by the desktop host.
 - The integrity of the executable selected as the backend.
 - The ability to invoke authenticated local API routes.
 
@@ -21,16 +24,19 @@ code signing are outside this change.
 ```text
 Electron main process
   |-- owns random API secret
+  |-- owns safeStorage encryption/decryption
   |-- selects and starts backend executable
   |-- injects Authorization on one loopback origin
   |
   +--> sandboxed renderer
   |      no Node.js, isolated context, deny-by-default permissions
   |      can use the authenticated local API through normal page requests
+  |      can set or clear allowlisted credentials, but cannot read them
   |
   +--> Python backend
          binds 127.0.0.1:<random-port>
          receives API_AUTH_KEY through its child environment
+         receives decrypted credentials through its child environment
 ```
 
 The renderer is trusted to perform the same application actions as the web UI,
@@ -57,8 +63,9 @@ therefore security-significant.
 
 - `nodeIntegration` is disabled.
 - `contextIsolation` and Chromium sandboxing are enabled.
-- The preload exposes only status, error, retry, log-folder, and backend-restart
-  operations.
+- The preload exposes status, error, retry, log-folder, backend-restart, and
+  allowlisted credential-write operations. Credential values are never
+  returned to the renderer.
 - Browser permission checks and requests are denied by default.
 - New windows are denied; safe HTTP(S) links are opened in the system browser.
 - In-window navigation is restricted to the active local backend origin.
@@ -76,6 +83,24 @@ therefore security-significant.
 - If the backend remains alive, Windows `taskkill /T /F` is applied only to the
   PID of the child created by this Electron process.
 
+### Credential storage
+
+- Credential names are checked against a fixed allowlist in the Electron main
+  process.
+- Values are encrypted and decrypted only through Electron `safeStorage`.
+- The on-disk JSON file contains only Base64-encoded ciphertext and the list of
+  configured names.
+- Writes use a same-directory temporary file followed by rename.
+- Existing supported values in `~/.vibe-trading/.env` and QVeris configuration
+  are migrated once; the corresponding plaintext field is removed after the
+  encrypted store has been persisted.
+- Decrypted values are injected only into the owned backend child environment.
+- Desktop secure mode prevents settings API writes from copying injected
+  secrets back into dotenv.
+- The credential smoke test uses an isolated temporary profile and verifies
+  migration, persistence, plaintext removal, allowlisting, replacement, and
+  clearing.
+
 ## Residual risks
 
 - Renderer script injection can exercise the authenticated API even though it
@@ -87,16 +112,25 @@ therefore security-significant.
   authentication secret.
 - The development override `VIBE_TRADING_EXECUTABLE` trusts the explicitly
   selected executable. Users must not point it at untrusted code.
-- The child inherits the desktop process environment. Secure credential
-  isolation is deferred to the packaging/credential-storage review.
+- A compromised renderer can overwrite or clear an allowlisted credential even
+  though it cannot retrieve the current value.
+- `safeStorage` protects data at rest for the current Windows user; it does not
+  protect against malware, a debugger, or another process already executing
+  with equivalent user privileges.
+- Migration cannot erase plaintext that may remain in backups, filesystem
+  history, crash dumps, or external logs.
+- The child inherits both the desktop process environment and decrypted
+  credentials required by the backend.
 - Forceful tree termination can interrupt in-progress local work after the
   graceful shutdown timeout.
-- This source-only change does not provide code signing, installer reputation,
-  update authenticity, or an official HKUDS release channel.
+- This source-only change does not provide a signing identity, installer
+  reputation, update authenticity, or an official HKUDS release channel.
 
 ## Non-goals
 
 - Protecting against a fully compromised Windows account or administrator.
 - Enabling remote API access.
-- Managing broker, exchange, IM, or model-provider credentials.
-- Installing or updating the application.
+- Managing broker, exchange, or IM credentials.
+- Exposing credential values back to the renderer.
+- Publishing releases, choosing a signing identity, or updating the
+  application.
